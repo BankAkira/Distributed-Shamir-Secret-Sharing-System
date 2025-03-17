@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import './App.css';
 import RegistryABI from './abis/OptimizedShamirRegistry.json';
 import ShareContractABI from './abis/ShareContract.json';
+import ShamirClient from './ShamirClient';
 
 function App() {
   // State variables
@@ -274,86 +275,182 @@ function App() {
   const isShareSelected = (secretId, shareId) => {
     return sharesToUse.some(s => s.secretId === secretId && s.shareId === shareId);
   };
-  
-  // Reconstruct a secret
-const handleReconstructSecret = async (e) => {
-  e.preventDefault();
-  
-  if (!registryContract) {
-    setError('Registry contract not connected');
-    return;
-  }
-  
-  if (!secretToReconstruct) {
-    setError('Please select a secret to reconstruct');
-    return;
-  }
-  
-  // Filter shares for the selected secret
-  const relevantShares = sharesToUse
-    .filter(s => s.secretId === secretToReconstruct)
-    .map(s => parseInt(s.shareId));
-  
-  if (relevantShares.length < secretDetails[secretToReconstruct]?.threshold) {
-    setError(`You need at least ${secretDetails[secretToReconstruct]?.threshold} shares to reconstruct this secret`);
-    return;
-  }
-  
-  try {
-    setLoading(true);
-    setError('');
-    setSuccess('');
+
+  // Modified function to better handle share data from the contract
+  const handleReconstructSecret = async (e) => {
+    e.preventDefault();
     
-    // Call the contract method to reconstruct the secret
-    // Important: Wait for the transaction to be mined and get the receipt
-    const tx = await registryContract.reconstructSecret(secretToReconstruct, relevantShares);
-    console.log("Transaction sent:", tx.hash);
-    
-    // Wait for the transaction to be mined
-    setSuccess('Transaction submitted. Waiting for confirmation...');
-    const receipt = await tx.wait();
-    
-    if (receipt.status === 1) {
-      setSuccess('Transaction confirmed! Fetching reconstructed secret...');
-      
-      // Now we need to call the function again, but as a view/call function not a transaction
-      // to get the actual return value
-      try {
-        const result = await registryContract.callStatic.reconstructSecret(secretToReconstruct, relevantShares);
-        
-        // Decode the result from bytes to string
-        try {
-          const decodedSecret = ethers.utils.toUtf8String(result);
-          setReconstructedSecret(decodedSecret);
-          setSuccess('Secret reconstructed successfully!');
-        } catch (decodeError) {
-          console.error('Error decoding result:', decodeError);
-          setError('Error decoding the reconstructed secret. The secret might contain binary data.');
-          // Try to show something anyways
-          setReconstructedSecret(`[Binary data: 0x${Array.from(new Uint8Array(result)).map(b => b.toString(16).padStart(2, '0')).join('')}]`);
-        }
-      } catch (callError) {
-        console.error('Error calling reconstructSecret statically:', callError);
-        setError('Error retrieving the reconstructed secret: ' + callError.message);
-      }
-    } else {
-      setError('Transaction failed. Please check the blockchain explorer for details.');
+    if (!secretToReconstruct) {
+      setError('Please select a secret to reconstruct');
+      return;
     }
     
-    // Reload user secrets to update access counts
+    // Filter shares for the selected secret
+    const relevantShareIds = sharesToUse
+      .filter(s => s.secretId === secretToReconstruct)
+      .map(s => parseInt(s.shareId));
+    
+    // Verify we have enough shares
+    const threshold = secretDetails[secretToReconstruct]?.threshold;
+    if (relevantShareIds.length < threshold) {
+      setError(`You need at least ${threshold} shares to reconstruct this secret (selected: ${relevantShareIds.length})`);
+      return;
+    }
+    
     try {
-      await loadUserSecrets();
-    } catch (error) {
-      console.warn('Failed to reload user secrets after reconstruction:', error);
+      setLoading(true);
+      setError('');
+      setSuccess('');
+      setReconstructedSecret('');
+      
+      // First, log data to help with debugging
+      console.log("Secret ID:", secretToReconstruct);
+      console.log("Share IDs to use:", relevantShareIds);
+      
+      // We need to get the share data from the blockchain
+      setSuccess('Fetching share data from contracts...');
+      
+      const shareData = [];
+      for (const shareId of relevantShareIds) {
+        try {
+          // Get the share contract address
+          const shareContractAddress = await registryContract.getShareContractAddress(
+            secretToReconstruct, 
+            shareId
+          );
+          
+          console.log(`Share ${shareId} contract:`, shareContractAddress);
+          
+          // Create a contract instance for this share
+          const shareContract = new ethers.Contract(
+            shareContractAddress, 
+            ShareContractABI.abi, 
+            signer
+          );
+          
+          // Get the share data
+          const data = await shareContract.getShareData(account);
+          console.log(`Share ${shareId} data:`, data);
+          
+          // Format data correctly for our ShamirClient
+          // First convert any ethers BigNumber to a hex string
+          let formattedData;
+          if (data._hex) {
+            // For ethers v5
+            formattedData = ethers.utils.arrayify(data);
+          } else if (typeof data === 'string' && data.startsWith('0x')) {
+            // For hex string
+            formattedData = ethers.utils.arrayify(data);
+          } else {
+            // Try our best
+            formattedData = data;
+          }
+          
+          console.log(`Share ${shareId} formatted:`, formattedData);
+          shareData.push(formattedData);
+        } catch (error) {
+          console.error(`Error fetching share ${shareId}:`, error);
+          setError(`Failed to fetch share ${shareId}: ${error.message}`);
+          setLoading(false);
+          return;
+        }
+      }
+      
+      setSuccess('Reconstructing secret locally...');
+      console.log("All shares data:", shareData);
+      
+      // Perform the reconstruction
+      try {
+        // Use our client-side implementation to reconstruct the secret
+        const secretBytes = ShamirClient.reconstructSecret(shareData);
+        console.log("Reconstructed bytes:", secretBytes);
+        
+        // Try to decode as UTF-8 text
+        const decodedSecret = ShamirClient.bytesToString(secretBytes);
+        setReconstructedSecret(decodedSecret);
+        setSuccess('Secret reconstructed successfully!');
+        
+        // Optionally call the blockchain to update access stats
+        try {
+          // First check if we can use a dedicated function
+          let hasRecordFunction = false;
+          try {
+            hasRecordFunction = typeof registryContract.recordSecretAccess === 'function';
+          } catch (e) {
+            hasRecordFunction = false;
+          }
+          
+          if (hasRecordFunction) {
+            setSuccess('Recording access on blockchain...');
+            const tx = await registryContract.recordSecretAccess(secretToReconstruct);
+            await tx.wait();
+            setSuccess('Secret reconstructed successfully! Access recorded on blockchain.');
+          } else {
+            // Skip recording stats for now
+            setSuccess('Secret reconstructed successfully!');
+          }
+        } catch (recordError) {
+          console.warn('Could not record access:', recordError);
+          setSuccess('Secret reconstructed successfully!');
+        }
+      } catch (reconstructError) {
+        console.error('Error in reconstruction:', reconstructError);
+        setError(`Failed to reconstruct the secret: ${reconstructError.message}`);
+        
+        // If client-side reconstruction fails, fall back to using the contract
+        try {
+          setSuccess('Falling back to contract reconstruction...');
+          
+          // Call the contract method to reconstruct the secret
+          const tx = await registryContract.reconstructSecret(secretToReconstruct, relevantShareIds);
+          console.log("Transaction sent:", tx.hash);
+          
+          // Wait for the transaction to be mined
+          setSuccess('Transaction submitted. Waiting for confirmation...');
+          const receipt = await tx.wait();
+          
+          if (receipt.status === 1) {
+            // Now we need to call the function again to get the actual value
+            const result = await registryContract.callStatic.reconstructSecret(
+              secretToReconstruct, 
+              relevantShareIds
+            );
+            
+            // Decode the result
+            try {
+              const decodedSecret = ethers.utils.toUtf8String(result);
+              setReconstructedSecret(decodedSecret);
+              setSuccess('Secret reconstructed successfully using contract!');
+            } catch (decodeError) {
+              console.error('Error decoding contract result:', decodeError);
+              setError('Error decoding the contract result. The secret might contain binary data.');
+              
+              // Show hex representation
+              setReconstructedSecret(`[Binary data: 0x${Array.from(new Uint8Array(result)).map(b => b.toString(16).padStart(2, '0')).join('')}]`);
+            }
+          } else {
+            setError('Contract transaction failed. Please check the blockchain explorer for details.');
+          }
+        } catch (contractError) {
+          console.error('Error falling back to contract:', contractError);
+          setError(`Both client-side and contract reconstruction failed. Error: ${contractError.message}`);
+        }
+      }
+      
+      // Reload user secrets to update UI
+      try {
+        await loadUserSecrets();
+      } catch (error) {
+        console.warn('Failed to reload user secrets after reconstruction:', error);
+      }
+      
+      setLoading(false);
+    } catch (err) {
+      console.error('Error reconstructing secret:', err);
+      setError(`Error reconstructing secret: ${err.message || 'Unknown error'}`);
+      setLoading(false);
     }
-    
-    setLoading(false);
-  } catch (err) {
-    console.error('Error reconstructing secret:', err);
-    setError('Error reconstructing secret: ' + (err.message || 'Unknown error'));
-    setLoading(false);
-  }
-};
+  };
   
   // Load share contract
   const loadShareContract = async () => {
@@ -651,53 +748,107 @@ const handleReconstructSecret = async (e) => {
           )}
         </div>
         
-        {/* Reconstruct Secret Section */}
-        <div className="app-section">
-          <h2>Reconstruct a Secret</h2>
-          
-          <form onSubmit={handleReconstructSecret}>
-            <div className="form-group">
-              <label>Select Secret to Reconstruct:</label>
-              <select
-                value={secretToReconstruct}
-                onChange={(e) => setSecretToReconstruct(e.target.value)}
-                required
-              >
-                <option value="">-- Select a Secret --</option>
-                {mySecrets.map(secretId => (
-                  <option key={secretId} value={secretId}>
-                    Secret {secretId} {secretDetails[secretId]?.description ? `(${secretDetails[secretId].description})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            {secretToReconstruct && (
-              <div className="form-group">
-                <p>Select shares to use (check boxes in the My Secrets section)</p>
-                <p>
-                  Selected: {sharesToUse.filter(s => s.secretId === secretToReconstruct).length} shares 
-                  (need at least {secretDetails[secretToReconstruct]?.threshold || '?'})
-                </p>
-              </div>
-            )}
-            
-            <button 
-              type="submit" 
-              disabled={!registryContract || loading || !secretToReconstruct}
-              className="submit-btn"
+        {/* Reconstruct Secret Section with Improved UI */}
+      <div className="app-section">
+        <h2>Reconstruct a Secret</h2>
+        
+        <form onSubmit={handleReconstructSecret}>
+          <div className="form-group">
+            <label>Select Secret to Reconstruct:</label>
+            <select
+              value={secretToReconstruct}
+              onChange={(e) => {
+                setSecretToReconstruct(e.target.value);
+                // Clear previous reconstruction results when changing secrets
+                setReconstructedSecret('');
+              }}
+              required
             >
-              Reconstruct Secret
-            </button>
-          </form>
+              <option value="">-- Select a Secret --</option>
+              {mySecrets.map(secretId => (
+                <option key={secretId} value={secretId}>
+                  Secret {secretId} {secretDetails[secretId]?.description ? `(${secretDetails[secretId].description})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
           
-          {reconstructedSecret && (
-            <div className="reconstructed-result">
-              <h3>Reconstructed Secret:</h3>
-              <div className="secret-value">{reconstructedSecret}</div>
+          {secretToReconstruct && (
+            <div className="form-group">
+              <label>Selected Shares:</label>
+              <div className="selected-shares-info">
+                <div className="share-count-indicator">
+                  <div 
+                    className={`share-progress ${
+                      sharesToUse.filter(s => s.secretId === secretToReconstruct).length >= 
+                      (secretDetails[secretToReconstruct]?.threshold || Infinity) ? 'sufficient' : 'insufficient'
+                    }`}
+                    style={{
+                      width: `${Math.min(100, 
+                        (sharesToUse.filter(s => s.secretId === secretToReconstruct).length / 
+                        (secretDetails[secretToReconstruct]?.threshold || 1)) * 100
+                      )}%`
+                    }}
+                  ></div>
+                  <p>
+                    <strong>{sharesToUse.filter(s => s.secretId === secretToReconstruct).length}</strong> of{' '}
+                    <strong>{secretDetails[secretToReconstruct]?.threshold || '?'}</strong> required shares selected
+                  </p>
+                </div>
+                
+                {/* Show list of selected shares */}
+                {sharesToUse.filter(s => s.secretId === secretToReconstruct).length > 0 ? (
+                  <div className="selected-shares-list">
+                    <p>Using shares: {sharesToUse
+                      .filter(s => s.secretId === secretToReconstruct)
+                      .map(s => s.shareId)
+                      .join(', ')}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="share-selection-hint">Please select shares from the My Secrets section by checking the boxes next to each share</p>
+                )}
+              </div>
             </div>
           )}
-        </div>
+          
+          {loading && (
+            <div className="reconstruction-progress">
+              <div className="progress-spinner"></div>
+              <p>{success || 'Processing...'}</p>
+            </div>
+          )}
+          
+          <button 
+            type="submit" 
+            disabled={
+              !registryContract || 
+              loading || 
+              !secretToReconstruct || 
+              sharesToUse.filter(s => s.secretId === secretToReconstruct).length < (secretDetails[secretToReconstruct]?.threshold || Infinity)
+            }
+            className="submit-btn"
+          >
+            {loading ? 'Processing...' : 'Reconstruct Secret'}
+          </button>
+        </form>
+        
+        {reconstructedSecret && (
+          <div className="reconstructed-result">
+            <h3>Reconstructed Secret:</h3>
+            <div className="secret-value">{reconstructedSecret}</div>
+            <button 
+              className="copy-btn" 
+              onClick={() => {
+                navigator.clipboard.writeText(reconstructedSecret);
+                setSuccess('Secret copied to clipboard!');
+              }}
+            >
+              Copy to Clipboard
+            </button>
+          </div>
+        )}
+      </div>
         
         {/* Share Management Section */}
         <div className="app-section">

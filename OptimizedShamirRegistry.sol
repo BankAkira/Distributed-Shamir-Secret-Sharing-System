@@ -74,6 +74,7 @@ contract OptimizedShamirRegistry is IShamirRegistry {
         address indexed user, 
         address indexed performer
     );
+    event SecretAccessed(uint256 indexed secretId, address user);
     
     // Modifiers
     modifier onlyOwner() {
@@ -432,6 +433,21 @@ contract OptimizedShamirRegistry is IShamirRegistry {
         
         // Emit a comprehensive event for monitoring and auditing
         emit AccessManagementAction(secretId, shareIndex, action, user, performer);
+    }
+
+        /**
+    * @dev Records an access to a secret without revealing the secret
+    * @param secretId The ID of the secret being accessed
+    */
+    function recordSecretAccess(uint256 secretId) public {
+        require(secretExists(secretId), "Secret does not exist");
+        
+        // Update access statistics
+        secrets[secretId].lastAccessTimestamp = block.timestamp;
+        secrets[secretId].accessCount++;
+        
+        // Emit an event for tracking
+        emit SecretAccessed(secretId, msg.sender);
     }
     
     /**
