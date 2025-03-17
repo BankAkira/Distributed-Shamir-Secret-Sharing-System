@@ -28,8 +28,9 @@ contract ShareContract is IShareContract {
     // Events
     event Initialized(uint256 secretId, uint8 shareIndex, address owner);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-    event AccessGranted(address indexed user);
-    event AccessRevoked(address indexed user);
+    event AccessGranted(address indexed user, address indexed grantedBy);
+    event AccessRevoked(address indexed user, address indexed revokedBy);
+    event ShareAccessed(address indexed accessor, uint256 timestamp);
     
     // Modifiers
     modifier onlyOwner() {
@@ -108,6 +109,15 @@ contract ShareContract is IShareContract {
         registry.updateUserSecrets(newOwner, secretId, true);
         
         emit OwnershipTransferred(oldOwner, newOwner);
+        
+        // Try to emit event from registry (optional)
+        try IShamirRegistry(registryAddress).emitAccessManagementEvent(
+            secretId, 
+            shareIndex, 
+            "OWNERSHIP_TRANSFERRED", 
+            newOwner, 
+            msg.sender
+        ) {} catch {}
     }
     
     /**
@@ -124,7 +134,16 @@ contract ShareContract is IShareContract {
         IShamirRegistry registry = IShamirRegistry(registryAddress);
         registry.updateUserSecrets(user, secretId, true);
         
-        emit AccessGranted(user);
+        emit AccessGranted(user, msg.sender);
+        
+        // Try to emit event from registry (optional)
+        try IShamirRegistry(registryAddress).emitAccessManagementEvent(
+            secretId, 
+            shareIndex, 
+            "ACCESS_GRANTED", 
+            user, 
+            msg.sender
+        ) {} catch {}
     }
     
     /**
@@ -142,7 +161,16 @@ contract ShareContract is IShareContract {
         IShamirRegistry registry = IShamirRegistry(registryAddress);
         registry.updateUserSecrets(user, secretId, false);
         
-        emit AccessRevoked(user);
+        emit AccessRevoked(user, msg.sender);
+        
+        // Try to emit event from registry (optional)
+        try IShamirRegistry(registryAddress).emitAccessManagementEvent(
+            secretId, 
+            shareIndex, 
+            "ACCESS_REVOKED", 
+            user, 
+            msg.sender
+        ) {} catch {}
     }
     
     /**
@@ -161,7 +189,21 @@ contract ShareContract is IShareContract {
      */
     function getShareData(address requester) public view override returns (bytes memory) {
         require(authorizedUsers[requester], "Not authorized to access this share");
+        
+        // We can't emit events in view functions, but in a real-world scenario, 
+        // you might want to use an external function for this to log access
+        
         return shareData;
+    }
+    
+    /**
+     * @dev Logs access to the share data (can be called externally)
+     * @param requester The address of the requester
+     * @notice This does not return the share data, just logs access
+     */
+    function logAccess(address requester) public {
+        require(authorizedUsers[requester], "Not authorized to access this share");
+        emit ShareAccessed(requester, block.timestamp);
     }
     
     /**

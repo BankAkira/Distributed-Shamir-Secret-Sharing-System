@@ -12,16 +12,12 @@ import "./IShareContract.sol";
  * @dev A registry contract that manages shares stored in separate contracts using a factory
  */
 contract OptimizedShamirRegistry is IShamirRegistry {
-    // Reference to the ShamirSecretSharing contract
+    // Core dependencies
     ShamirSecretSharing private shamirContract;
-    
-    // Reference to the share contract factory
     ShareContractFactory private factory;
-    
-    // Share contract implementation address
     address public shareImplementation;
     
-    // Struct to represent a secret's metadata
+    // Secret management
     struct SecretInfo {
         uint256 id;                  // Unique identifier for the secret
         uint8 parts;                 // Total parts created
@@ -33,29 +29,51 @@ contract OptimizedShamirRegistry is IShamirRegistry {
         uint256 dataSize;            // Size of the original secret data
     }
     
-    // Mapping from secret ID to SecretInfo
+    // Storage mappings
     mapping(uint256 => SecretInfo) private secrets;
-    
-    // Mapping from secret ID and share index to share contract address
     mapping(uint256 => mapping(uint8 => address)) private shareContracts;
-    
-    // Mapping from a user address to array of secret IDs they have access to
     mapping(address => uint256[]) private userSecrets;
     
-    // Counter for generating unique secret IDs
+    // Contract state
     uint256 private secretIdCounter;
-    
-    // Contract owner
     address public owner;
-    
-    // Circuit breaker
     bool public paused;
     
+    // Security limits
+    uint8 public constant MAX_PARTS = 100;       // Maximum number of parts allowed
+    uint256 public constant MAX_SECRET_SIZE = 10240; // Maximum size of a secret (10KB)
+    
     // Events
-    event SecretSplit(uint256 indexed secretId, uint8 parts, uint8 threshold, address creator, uint256 dataSize);
-    event ShareContractDeployed(uint256 indexed secretId, uint8 shareIndex, address contractAddress);
-    event SecretReconstructed(uint256 indexed secretId, address reconstructor);
+    event SecretSplit(
+        uint256 indexed secretId, 
+        uint8 parts, 
+        uint8 threshold, 
+        address creator, 
+        uint256 dataSize
+    );
+    event ShareContractDeployed(
+        uint256 indexed secretId, 
+        uint8 shareIndex, 
+        address contractAddress
+    );
+    event SecretReconstructed(
+        uint256 indexed secretId, 
+        address reconstructor
+    );
+    event SecretReconstructionAttempted(
+        uint256 indexed secretId, 
+        address requester, 
+        uint256 timestamp, 
+        bool successful
+    );
     event EmergencyPauseSet(bool paused);
+    event AccessManagementAction(
+        uint256 indexed secretId, 
+        uint8 shareIndex, 
+        string action, 
+        address indexed user, 
+        address indexed performer
+    );
     
     // Modifiers
     modifier onlyOwner() {
@@ -103,9 +121,12 @@ contract OptimizedShamirRegistry is IShamirRegistry {
         string memory description,
         address[] memory initialOwners
     ) public override whenNotPaused returns (uint256) {
+        // Input validation
         require(parts >= 2 && threshold >= 2, "Parts and threshold must be at least 2");
         require(parts >= threshold, "Parts must be at least equal to threshold");
         require(secret.length > 0, "Secret cannot be empty");
+        require(parts <= MAX_PARTS, "Number of parts exceeds maximum allowed");
+        require(secret.length <= MAX_SECRET_SIZE, "Secret size exceeds maximum allowed");
         
         // Validate initialOwners if provided
         if (initialOwners.length > 0) {
@@ -184,10 +205,15 @@ contract OptimizedShamirRegistry is IShamirRegistry {
      * @param shareIndices The indices of the shares to use
      * @return The reconstructed secret
      */
-    function reconstructSecret(uint256 secretId, uint8[] memory shareIndices) public override whenNotPaused returns (bytes memory) {
+    function reconstructSecret(uint256 secretId, uint8[] memory shareIndices) 
+        public override whenNotPaused returns (bytes memory) 
+    {
         SecretInfo storage secretInfo = secrets[secretId];
         require(secretInfo.id == secretId, "Secret does not exist");
         require(shareIndices.length >= secretInfo.threshold, "Not enough shares provided");
+        
+        // Log reconstruction attempt
+        emit SecretReconstructionAttempted(secretId, msg.sender, block.timestamp, false);
         
         // Validate indices and check for duplicates
         bool[] memory usedIndices = new bool[](256); // Max possible indices
@@ -229,7 +255,9 @@ contract OptimizedShamirRegistry is IShamirRegistry {
         secretInfo.lastAccessTimestamp = block.timestamp;
         secretInfo.accessCount++;
         
+        // Log successful reconstruction
         emit SecretReconstructed(secretId, msg.sender);
+        emit SecretReconstructionAttempted(secretId, msg.sender, block.timestamp, true);
         
         return reconstructedSecret;
     }
@@ -267,7 +295,9 @@ contract OptimizedShamirRegistry is IShamirRegistry {
      * @param shareIndex The index of the share
      * @return The address of the share contract
      */
-    function getShareContractAddress(uint256 secretId, uint8 shareIndex) public view override returns (address) {
+    function getShareContractAddress(uint256 secretId, uint8 shareIndex) 
+        public view override returns (address) 
+    {
         return shareContracts[secretId][shareIndex];
     }
     
@@ -277,6 +307,40 @@ contract OptimizedShamirRegistry is IShamirRegistry {
      */
     function getMySecrets() public view override returns (uint256[] memory) {
         return userSecrets[msg.sender];
+    }
+    
+    /**
+     * @dev Gets all share indices owned by the caller for a specific secret
+     * @param secretId The ID of the secret
+     * @return An array of share indices owned by the caller
+     */
+    function getMySharesForSecret(uint256 secretId) public view override returns (uint8[] memory) {
+        // Check if the secret exists
+        require(secrets[secretId].id == secretId, "Secret does not exist");
+        
+        // Find all shares for this secret owned by the caller
+        uint8 parts = secrets[secretId].parts;
+        uint8[] memory ownedShares = new uint8[](parts); // Maximum possible size
+        uint8 count = 0;
+        
+        for (uint8 i = 1; i <= parts; i++) {
+            address shareAddress = shareContracts[secretId][i];
+            if (shareAddress != address(0)) {
+                IShareContract shareContract = IShareContract(shareAddress);
+                if (shareContract.canAccess(msg.sender)) {
+                    ownedShares[count] = i;
+                    count++;
+                }
+            }
+        }
+        
+        // Create a properly sized result array
+        uint8[] memory result = new uint8[](count);
+        for (uint8 i = 0; i < count; i++) {
+            result[i] = ownedShares[i];
+        }
+        
+        return result;
     }
     
     /**
@@ -343,6 +407,31 @@ contract OptimizedShamirRegistry is IShamirRegistry {
                 }
             }
         }
+    }
+    
+    /**
+     * @dev Helper function to emit access management events from share contracts
+     * @param secretId The ID of the secret
+     * @param shareIndex The index of the share
+     * @param action The action performed (e.g., "ACCESS_GRANTED", "ACCESS_REVOKED", "OWNERSHIP_TRANSFERRED")
+     * @param user The address of the user affected
+     * @param performer The address of the user performing the action
+     */
+    function emitAccessManagementEvent(
+        uint256 secretId, 
+        uint8 shareIndex, 
+        string calldata action, 
+        address user, 
+        address performer
+    ) external override {
+        // Verify caller is a valid share contract for this secret
+        require(
+            shareContracts[secretId][shareIndex] == msg.sender, 
+            "Only the actual share contract can call this function"
+        );
+        
+        // Emit a comprehensive event for monitoring and auditing
+        emit AccessManagementAction(secretId, shareIndex, action, user, performer);
     }
     
     /**

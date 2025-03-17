@@ -28,6 +28,8 @@ interface IShamirRegistry {
     
     function getShareContractAddress(uint256 secretId, uint8 shareIndex) external view returns (address);
     function getMySecrets() external view returns (uint256[] memory);
+    function getMySharesForSecret(uint256 secretId) external view returns (uint8[] memory);
     function secretExists(uint256 secretId) external view returns (bool);
     function updateUserSecrets(address user, uint256 secretId, bool hasAccess) external;
+    function emitAccessManagementEvent(uint256 secretId, uint8 shareIndex, string calldata action, address user, address performer) external;
 }
