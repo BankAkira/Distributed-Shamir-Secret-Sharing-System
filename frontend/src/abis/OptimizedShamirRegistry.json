@@ -1,0 +1,447 @@
+{
+    "abi": [
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "_shamirContractAddress",
+            "type": "address"
+          }
+        ],
+        "stateMutability": "nonpayable",
+        "type": "constructor"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "internalType": "bool",
+            "name": "paused",
+            "type": "bool"
+          }
+        ],
+        "name": "EmergencyPauseSet",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": true,
+            "internalType": "uint256",
+            "name": "secretId",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "internalType": "address",
+            "name": "reconstructor",
+            "type": "address"
+          }
+        ],
+        "name": "SecretReconstructed",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": true,
+            "internalType": "uint256",
+            "name": "secretId",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint8",
+            "name": "parts",
+            "type": "uint8"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint8",
+            "name": "threshold",
+            "type": "uint8"
+          },
+          {
+            "indexed": false,
+            "internalType": "address",
+            "name": "creator",
+            "type": "address"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "dataSize",
+            "type": "uint256"
+          }
+        ],
+        "name": "SecretSplit",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": true,
+            "internalType": "uint256",
+            "name": "secretId",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint8",
+            "name": "shareIndex",
+            "type": "uint8"
+          },
+          {
+            "indexed": false,
+            "internalType": "address",
+            "name": "contractAddress",
+            "type": "address"
+          }
+        ],
+        "name": "ShareContractDeployed",
+        "type": "event"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "secretId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint8",
+            "name": "shareIndex",
+            "type": "uint8"
+          }
+        ],
+        "name": "emergencyDestroyShare",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "secretId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint8",
+            "name": "shareIndex",
+            "type": "uint8"
+          }
+        ],
+        "name": "getShareContractAddress",
+        "outputs": [
+          {
+            "internalType": "address",
+            "name": "",
+            "type": "address"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "secretId",
+            "type": "uint256"
+          }
+        ],
+        "name": "getMySharesForSecret",
+        "outputs": [
+          {
+            "internalType": "uint8[]",
+            "name": "",
+            "type": "uint8[]"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "getMySecrets",
+        "outputs": [
+          {
+            "internalType": "uint256[]",
+            "name": "",
+            "type": "uint256[]"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "secretId",
+            "type": "uint256"
+          }
+        ],
+        "name": "getMySharesForSecret",
+        "outputs": [
+          {
+            "internalType": "uint8[]",
+            "name": "",
+            "type": "uint8[]"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "secretId",
+            "type": "uint256"
+          }
+        ],
+        "name": "getSecretInfo",
+        "outputs": [
+          {
+            "internalType": "uint8",
+            "name": "parts",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "threshold",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint256",
+            "name": "timestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "description",
+            "type": "string"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastAccessTimestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "accessCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dataSize",
+            "type": "uint256"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "owner",
+        "outputs": [
+          {
+            "internalType": "address",
+            "name": "",
+            "type": "address"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "paused",
+        "outputs": [
+          {
+            "internalType": "bool",
+            "name": "",
+            "type": "bool"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "secretId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint8[]",
+            "name": "shareIndices",
+            "type": "uint8[]"
+          }
+        ],
+        "name": "reconstructSecret",
+        "outputs": [
+          {
+            "internalType": "bytes",
+            "name": "",
+            "type": "bytes"
+          }
+        ],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "secretId",
+            "type": "uint256"
+          }
+        ],
+        "name": "secretExists",
+        "outputs": [
+          {
+            "internalType": "bool",
+            "name": "",
+            "type": "bool"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "bool",
+            "name": "_paused",
+            "type": "bool"
+          }
+        ],
+        "name": "setEmergencyPause",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "shareImplementation",
+        "outputs": [
+          {
+            "internalType": "address",
+            "name": "",
+            "type": "address"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "bytes",
+            "name": "secret",
+            "type": "bytes"
+          },
+          {
+            "internalType": "uint8",
+            "name": "parts",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "threshold",
+            "type": "uint8"
+          },
+          {
+            "internalType": "string",
+            "name": "description",
+            "type": "string"
+          },
+          {
+            "internalType": "address[]",
+            "name": "initialOwners",
+            "type": "address[]"
+          }
+        ],
+        "name": "splitAndDeploy",
+        "outputs": [
+          {
+            "internalType": "uint256",
+            "name": "",
+            "type": "uint256"
+          }
+        ],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "newOwner",
+            "type": "address"
+          }
+        ],
+        "name": "transferOwnership",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "newFactory",
+            "type": "address"
+          }
+        ],
+        "name": "updateFactory",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "newImplementation",
+            "type": "address"
+          }
+        ],
+        "name": "updateShareImplementation",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "user",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "secretId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "hasAccess",
+            "type": "bool"
+          }
+        ],
+        "name": "updateUserSecrets",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      }
+    ]
+  }
