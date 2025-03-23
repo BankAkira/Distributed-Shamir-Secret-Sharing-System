@@ -3,8 +3,11 @@ import { ethers } from "ethers";
 import "./App.css";
 import RegistryABI from "./abis/OptimizedShamirRegistry.json";
 import ShareContractABI from "./abis/ShareContract.json";
+import ShamirCilent from "./ShamirClient";
 import WalletIntegratedEncryption from "./WalletIntegratedEncryption";
 import WalletKeyManagement from "./WalletKeyManagement";
+
+import ShamirVisualization from './ShamirVisualization';
 
 // Import debugging components
 import DebugPanel from "./DebugPanel";
@@ -95,8 +98,8 @@ function App() {
   // Ethereum remaining
   const [walletBalance, setWalletBalance] = useState("");
   const [chainInfo, setChainInfo] = useState({
-    ticker: 'tKUB',
-    name: 'BitKub Testnet'
+    ticker: 'ETH',
+    name: 'OP Testnet'
   });
 
   const [encryptionKeys, setEncryptionKeys] = useState({
@@ -212,15 +215,15 @@ function App() {
         // Configure the chain configs that you want to support
         const chainConfig = {
           chainNamespace: CHAIN_NAMESPACES.EIP155,
-          chainId: "0x6545", // hex of 25925
-          rpcTarget: "https://rpc-testnet.bitkubchain.io",
+          chainId: "0xAA37DC", // hex of 11155420
+          rpcTarget: "https://sepolia.optimism.io",
           // Avoid using public rpcTarget in production.
-          // Use services like Infura, Quicknode etc
-          displayName: "BitKub Testnet",
-          blockExplorer: "https://testnet.bkcscan.com",
-          ticker: "tKUB",
-          tickerName: "tKUB",
-          logo: "https://s3.amazonaws.com/cdn.freshdesk.com/data/helpdesk/attachments/production/151011411910/original/BLLsZXQuCMERrt1iuNKKz3-ebSbLflZ1qQ.png",
+          // Use services like Infura
+          displayName: "OP Sepolia",
+          blockExplorerUrl: "`https://sepolia-optimistic.etherscan.io`",
+          ticker: "ETH",
+          tickerName: "ETH",
+          logo: "https://cryptologos.cc/logos/optimism-ethereum-op-logo.png",
         };
         
         Logger.debug('App', 'initWeb3Auth', { chainConfig });
@@ -891,20 +894,20 @@ function App() {
       sharesToUseCount: sharesToUse.length,
       hasEncryptionKeys: !!encryptionKeys.publicKey
     });
-  
+    
     if (!secretToReconstruct) {
       Logger.warn('App', 'handleReconstructSecret', 'No secret selected for reconstruction');
       setError("Please select a secret to reconstruct");
       return;
     }
-  
+    
     // Check for decryption capability
     if (!encryptionKeys.publicKey) {
       Logger.warn('App', 'handleReconstructSecret', 'Encryption keys not available');
       setError("Encryption keys not available. Please retrieve your wallet keys or generate browser keys.");
       return;
     }
-  
+    
     // Filter shares for the selected secret
     const relevantShareIds = sharesToUse
       .filter((s) => s.secretId === secretToReconstruct)
@@ -920,7 +923,7 @@ function App() {
       shareCount: relevantShareIds.length,
       threshold: secretDetails[secretToReconstruct]?.threshold
     });
-  
+    
     // Verify we have enough shares
     const threshold = secretDetails[secretToReconstruct]?.threshold;
     if (relevantShareIds.length < threshold) {
@@ -928,45 +931,90 @@ function App() {
       setError(`You need at least ${threshold} shares to reconstruct this secret (selected: ${relevantShareIds.length})`);
       return;
     }
-  
+    
     try {
       setLoading(true);
       setError("");
       setSuccess("");
       setReconstructedSecret("");
-  
-      // Call the contract method to reconstruct the encrypted package
-      Logger.info('App', 'handleReconstructSecret', 'Retrieving encrypted data from blockchain');
-      setSuccess("Retrieving encrypted data from blockchain...");
-      addDebugLog('info', 'Calling reconstructSecret on contract', { shareIndices: relevantShareIds });
       
-      const encryptedResult = await registryContract.reconstructSecret(
-        secretToReconstruct,
-        relevantShareIds
-      );
-      Logger.debug('App', 'handleReconstructSecret', { encryptedResultSize: encryptedResult.length });
-      addDebugLog('success', 'Retrieved encrypted data', { resultSize: encryptedResult.length });
+      // 1. Call the contract method to retrieve each share
+      Logger.info('App', 'handleReconstructSecret', 'Retrieving shares from blockchain');
+      setSuccess("Retrieving shares from blockchain...");
+      
+      // Collect the share data for each selected share
+      const shares = [];
+      for (const shareId of relevantShareIds) {
+        addDebugLog('info', `Retrieving share ${shareId}`, { secretId: secretToReconstruct });
+        
+        // Get the share contract address
+        const shareContractAddress = await registryContract.getShareContractAddress(
+          secretToReconstruct, 
+          shareId
+        );
+        
+        // Create a contract instance for this share
+        const shareContract = new ethers.Contract(
+          shareContractAddress,
+          ShareContractABI.abi,
+          signer
+        );
+        
+        // Get the share data
+        const shareData = await shareContract.getShareData(account);
+        
+        // Add to our shares collection with the index
+        shares.push({
+          data: shareData,
+          index: shareId
+        });
+        
+        addDebugLog('debug', `Retrieved share ${shareId}`, { 
+          dataLength: shareData.length,
+          contractAddress: shareContractAddress
+        });
+      }
+      
+      addDebugLog('info', 'All shares retrieved', { count: shares.length });
+      setSuccess("Reconstructing secret using Shamir's Secret Sharing...");
+      
+      // 2. Use ShamirClient to reconstruct the secret
+      // Format the shares for the ShamirClient
+      const formattedShares = shares.map(share => ({
+        shareData: share.data,
+        x: share.index
+      }));
+      
+      // Import the ShamirClient module
+      const ShamirClient = await import('./ShamirClient').then(module => module.default);
+      
+      // Reconstruct the encrypted package bytes
+      Logger.info('App', 'handleReconstructSecret', 'Applying Shamir reconstruction');
+      const reconstructedBytes = ShamirClient.reconstructSecret(formattedShares.map(s => s.shareData));
+      
+      // 3. Convert reconstructed bytes to the encrypted package
+      setSuccess("Reconstructed data, preparing for decryption...");
+      
+      // The reconstructed bytes should represent the encrypted package in JSON format
+      const encryptedPackage = new TextDecoder().decode(reconstructedBytes);
+      Logger.debug('App', 'handleReconstructSecret', { 
+        encryptedPackageSize: encryptedPackage.length,
+        preview: encryptedPackage.substring(0, 100) + '...'
+      });
+      
+      addDebugLog('success', 'Secret reconstructed using Shamir', { 
+        packageSize: encryptedPackage.length 
+      });
       
       // Store the raw data for debugging
-      setLastRawData(encryptedResult);
-  
-      // Convert result to string package
-      const encryptedHex = "0x" + Array.from(new Uint8Array(encryptedResult))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
-      Logger.debug('App', 'handleReconstructSecret', { encryptedHexSize: encryptedHex.length });
-      addDebugLog('info', 'Converted to hex', { hexSize: encryptedHex.length });
-        
-      const encryptedPackage = WalletIntegratedEncryption.fromHex(encryptedHex);
-      Logger.debug('App', 'handleReconstructSecret', { encryptedPackageSize: encryptedPackage.length });
-      addDebugLog('info', 'Converted from hex to string', { packageSize: encryptedPackage.length });
-  
-      // Decrypt using the appropriate method
+      setLastRawData(encryptedPackage);
+      
+      // 4. Decrypt using the appropriate method
       Logger.info('App', 'handleReconstructSecret', 'Decrypting data');
-      setSuccess("Decrypting data...");
+      setSuccess("Decrypting reconstructed data...");
       
       let decryptedSecret;
-  
+      
       if (encryptionKeys.manualKey && encryptionKeys.privateKey) {
         // Use manual decryption with private key
         Logger.debug('App', 'handleReconstructSecret', 'Using manual key decryption');
@@ -993,7 +1041,7 @@ function App() {
       
       setReconstructedSecret(decryptedSecret);
       setSuccess("Secret decrypted successfully!");
-  
+      
       // Record access on the blockchain
       try {
         Logger.info('App', 'handleReconstructSecret', 'Recording access on blockchain');
@@ -1005,7 +1053,7 @@ function App() {
         addDebugLog('warn', 'Could not record access on blockchain', recordError.message);
         console.warn("Could not record access:", recordError);
       }
-  
+      
       // Reload user secrets to update UI
       await loadUserSecrets();
       setLoading(false);
@@ -1302,6 +1350,11 @@ function App() {
           secretId={secretToReconstruct}
           selectedShares={sharesToUse.filter(s => s.secretId === secretToReconstruct)}
           onDebugReconstruction={handleDebugReconstruction}
+          provider={provider}
+          signer={signer}
+          registryContract={registryContract}
+          account={account}
+          encryptionKeys={encryptionKeys}
         />
       )}
 
@@ -1375,7 +1428,7 @@ function App() {
                       <p className="wallet-balance">
                         Balance:{" "}
                         <span className="balance-amount">{walletBalance}</span>
-                        <span className="ticker-symbol">tKUB</span>
+                        <span className="ticker-symbol">{chainInfo.ticker}</span>
                         <button
                           className="refresh-balance-btn"
                           onClick={fetchWalletBalance}
@@ -1417,7 +1470,7 @@ function App() {
                       <p className="wallet-balance">
                         Balance:{" "}
                         <span className="balance-amount">{walletBalance}</span>
-                        <span className="ticker-symbol">tKUB</span>
+                        <span className="ticker-symbol">{chainInfo}</span>
                         <button
                           className="refresh-balance-btn"
                           onClick={fetchWalletBalance}
@@ -1486,6 +1539,21 @@ function App() {
                 registryContract={registryContract}
                 addLog={addDebugLog}
               />
+              
+              {/* Add the ShamirVisualization component here */}
+              <details>
+                <summary style={{
+                  cursor: 'pointer',
+                  padding: '10px',
+                  marginBottom: '10px',
+                  backgroundColor: '#f0f0f0',
+                  borderRadius: '4px',
+                  fontWeight: 'bold'
+                }}>
+                  Educational: Shamir's Secret Sharing Visualization
+                </summary>
+                <ShamirVisualization />
+              </details>
             </div>
           )}
 

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import ShamirDebugTool from './ShamirDebugTool';
 import './DebugPanel.css';
 
 const DebugPanel = ({ 
@@ -8,7 +9,12 @@ const DebugPanel = ({
   rawData,
   secretId,
   selectedShares,
-  onDebugReconstruction
+  onDebugReconstruction,
+  provider,
+  signer,
+  registryContract,
+  account,
+  encryptionKeys
 }) => {
   const [testText, setTestText] = useState('');
   const [activeTab, setActiveTab] = useState('logs');
@@ -436,6 +442,20 @@ const DebugPanel = ({
                 <p>No data available for inspection.</p>
                 <p>Perform a "Test Reconstruction" in the Tools tab to load data.</p>
               </div>
+            )}
+            
+            {/* Add the ShamirDebugTool here */}
+            {secretId && selectedShares.length > 0 && (
+              <ShamirDebugTool
+                provider={provider}
+                signer={signer}
+                registryContract={registryContract}
+                account={account}
+                encryptionKeys={encryptionKeys}
+                addLog={addLog}
+                secretId={secretId}
+                shareIndices={selectedShares.map(s => parseInt(s.shareId))}
+              />
             )}
           </div>
         )}
