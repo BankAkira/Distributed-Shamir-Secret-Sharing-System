@@ -1,4 +1,4 @@
-// WalletIntegratedEncryption.js - FIXED VERSION
+// WalletIntegratedEncryption.js - FIXED VERSION WITH IMPROVED ERROR HANDLING
 // Public key cryptography using wallet keys and ephemeral encryption
 
 const WalletIntegratedEncryption = {
@@ -189,6 +189,8 @@ const WalletIntegratedEncryption = {
     // Encrypt a secret for multiple recipients (simplified for compatibility)
     encryptForRecipients: async (secret, recipientPublicKeys) => {
       try {
+        console.log("Starting encryption process for secret");
+        
         // Generate a random AES key for actual encryption
         const aesKey = await window.crypto.subtle.generateKey(
           {
@@ -198,10 +200,13 @@ const WalletIntegratedEncryption = {
           true,
           ["encrypt", "decrypt"]
         );
+        console.log("Generated AES key for encryption");
         
         // Encrypt the secret with the AES key
         const iv = window.crypto.getRandomValues(new Uint8Array(12));
         const secretBytes = new TextEncoder().encode(secret);
+        console.log("Secret encoded to bytes, length:", secretBytes.length);
+        
         const encryptedSecret = await window.crypto.subtle.encrypt(
           {
             name: "AES-GCM",
@@ -210,9 +215,11 @@ const WalletIntegratedEncryption = {
           aesKey,
           secretBytes
         );
+        console.log("Secret encrypted successfully, result size:", encryptedSecret.byteLength);
         
         // Export the AES key
         const rawAesKey = await window.crypto.subtle.exportKey("raw", aesKey);
+        console.log("AES key exported, size:", rawAesKey.byteLength);
         
         // In this simplified approach, we just store the raw AES key
         // In a real implementation, we would encrypt it with each recipient's public key
@@ -226,18 +233,43 @@ const WalletIntegratedEncryption = {
         };
         
         // Convert to JSON for blockchain storage
-        return JSON.stringify(result);
+        const jsonResult = JSON.stringify(result);
+        console.log("Encryption package created, JSON size:", jsonResult.length);
+        return jsonResult;
       } catch (error) {
         console.error("Error in standard encryption, using fallback:", error);
         return WalletIntegratedEncryption.fallbackEncryptForRecipients(secret, recipientPublicKeys);
       }
     },
     
-    // Decrypt message (simplified version that works without wallet API)
+    // Decrypt message (improved version with better error handling)
     decryptWithWallet: async (encryptedPackage, provider, account) => {
       try {
-        // Parse the encrypted package
-        const pkg = JSON.parse(encryptedPackage);
+        console.log("Starting wallet decryption process", { packageLength: encryptedPackage.length });
+        
+        // Debug the package content to check for valid JSON
+        if (encryptedPackage.length < 100) {
+          console.warn("Warning: Encrypted package is suspiciously short:", encryptedPackage);
+        }
+        
+        let pkg;
+        try {
+          // Parse the encrypted package
+          pkg = JSON.parse(encryptedPackage);
+          console.log("Successfully parsed JSON package", { 
+            hasIv: !!pkg.iv, 
+            hasEncryptedSecret: !!pkg.encryptedSecret,
+            hasAesKey: !!pkg.aesKey
+          });
+        } catch (parseError) {
+          console.error("JSON parse error:", parseError);
+          console.log("Raw package (first 100 chars):", encryptedPackage.substring(0, 100));
+          throw new Error(`Failed to parse encrypted package: ${parseError.message}`);
+        }
+        
+        if (!pkg.iv || !pkg.encryptedSecret || !pkg.aesKey) {
+          throw new Error("Invalid package format - missing required fields");
+        }
         
         // Extract the AES key
         const aesKey = await window.crypto.subtle.importKey(
@@ -250,10 +282,12 @@ const WalletIntegratedEncryption = {
           false,
           ["decrypt"]
         );
+        console.log("AES key imported successfully");
         
         // Decrypt the actual secret with the AES key
         const iv = new Uint8Array(pkg.iv);
         const encryptedSecret = new Uint8Array(pkg.encryptedSecret);
+        console.log("Preparing decryption", { ivLength: iv.length, encryptedLength: encryptedSecret.length });
         
         const decryptedSecret = await window.crypto.subtle.decrypt(
           {
@@ -263,9 +297,12 @@ const WalletIntegratedEncryption = {
           aesKey,
           encryptedSecret
         );
+        console.log("Decryption successful, result size:", decryptedSecret.byteLength);
         
         // Convert back to text
-        return new TextDecoder().decode(decryptedSecret);
+        const decodedText = new TextDecoder().decode(decryptedSecret);
+        console.log("Text decoded successfully, length:", decodedText.length);
+        return decodedText;
       } catch (error) {
         console.error("Decryption error:", error);
         throw new Error(`Failed to decrypt: ${error.message}`);
@@ -275,9 +312,18 @@ const WalletIntegratedEncryption = {
     // Decrypt with private key directly
     decryptWithPrivateKey: async (encryptedPackage, privateKeyString) => {
       try {
-        // For our simplified implementation, we just use the same method
-        // as the wallet decryption since we're not doing actual asymmetric encryption
-        const pkg = JSON.parse(encryptedPackage);
+        console.log("Starting private key decryption process");
+        
+        let pkg;
+        try {
+          // Parse the encrypted package
+          pkg = JSON.parse(encryptedPackage);
+          console.log("Successfully parsed JSON package");
+        } catch (parseError) {
+          console.error("JSON parse error:", parseError);
+          console.log("Raw package (first 100 chars):", encryptedPackage.substring(0, 100));
+          throw new Error(`Failed to parse encrypted package: ${parseError.message}`);
+        }
         
         // Extract the AES key
         const aesKey = await window.crypto.subtle.importKey(
@@ -333,21 +379,57 @@ const WalletIntegratedEncryption = {
     
     // Utility function to convert encrypted data to hex for blockchain storage
     toHex: (str) => {
-      return '0x' + Array.from(new TextEncoder().encode(str))
+      console.log("Converting to hex, input length:", str.length);
+      const bytes = new TextEncoder().encode(str);
+      console.log("Encoded to bytes, length:", bytes.length);
+      const hex = '0x' + Array.from(bytes)
         .map(b => b.toString(16).padStart(2, '0'))
         .join('');
+      console.log("Converted to hex, output length:", hex.length);
+      return hex;
     },
     
-    // Utility function to convert hex back to encrypted data
+    // Utility function to convert hex back to encrypted data - FIXED
     fromHex: (hex) => {
+      console.log("Converting from hex, input length:", hex.length);
       const strippedHex = hex.startsWith('0x') ? hex.slice(2) : hex;
-      const bytes = new Uint8Array(strippedHex.length / 2);
       
-      for (let i = 0; i < bytes.length; i++) {
-        bytes[i] = parseInt(strippedHex.substring(i * 2, i * 2 + 2), 16);
+      // Check if the hex string length is valid (must be even)
+      if (strippedHex.length % 2 !== 0) {
+        console.error("Invalid hex string length (must be even):", strippedHex.length);
+        throw new Error("Invalid hex string length");
       }
       
-      return new TextDecoder().decode(bytes);
+      // Check if the string contains only valid hex characters
+      if (!/^[0-9a-fA-F]+$/.test(strippedHex)) {
+        console.error("Invalid hex characters in string");
+        throw new Error("Invalid hex characters in string");
+      }
+      
+      const bytes = new Uint8Array(strippedHex.length / 2);
+      
+      try {
+        for (let i = 0; i < bytes.length; i++) {
+          bytes[i] = parseInt(strippedHex.substring(i * 2, i * 2 + 2), 16);
+        }
+        
+        const decoded = new TextDecoder().decode(bytes);
+        console.log("Converted from hex, output length:", decoded.length);
+        
+        // Verify the result is valid JSON
+        try {
+          JSON.parse(decoded);
+          console.log("Verified output is valid JSON");
+        } catch (e) {
+          console.warn("Output is not valid JSON:", e);
+          // Note: We don't throw here since some implementations might not use JSON
+        }
+        
+        return decoded;
+      } catch (error) {
+        console.error("Error converting hex to string:", error);
+        throw new Error(`Failed to convert hex to string: ${error.message}`);
+      }
     }
   };
   
