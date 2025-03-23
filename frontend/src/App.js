@@ -6,6 +6,11 @@ import ShareContractABI from "./abis/ShareContract.json";
 import WalletIntegratedEncryption from "./WalletIntegratedEncryption";
 import WalletKeyManagement from "./WalletKeyManagement";
 
+// Import debugging components
+import DebugPanel from "./DebugPanel";
+import ShamirBlockchainTester from "./ShamirBlockchainTester";
+import DirectReconstruction from "./DirectReconstruction";
+
 // Polyfill imports
 import "buffer";
 import process from "process";
@@ -32,8 +37,8 @@ const Logger = {
   success: (component, action, data) => {
     console.log(`[SUCCESS][${component}][${action}]`, data || '');
   },
-  debug: (component, action, data) => {
-    console.debug(`[DEBUG][${component}][${action}]`, data || '');
+  debug: (component, functionName, data) => {
+    console.debug(`[DEBUG][${component}][${functionName}]`, data || '');
   },
   trace: (component, functionName, args) => {
     console.log(`[TRACE][${component}][${functionName}] Called with:`, args || '');
@@ -102,6 +107,27 @@ function App() {
     manualKey: false
   });
 
+  // Debug state
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [showDebugTools, setShowDebugTools] = useState(true); // Show by default
+  const [debugLogs, setDebugLogs] = useState([]);
+  const [lastRawData, setLastRawData] = useState(null);
+
+  // Add debug log
+  const addDebugLog = (level, message, data) => {
+    const timestamp = new Date().toISOString();
+    const newLog = { timestamp, level, message, data };
+    setDebugLogs(prev => [newLog, ...prev.slice(0, 99)]); // Keep last 100 logs
+    
+    // Also log to console
+    switch(level) {
+      case 'error': console.error(message, data); break;
+      case 'warn': console.warn(message, data); break;
+      case 'success': console.log('%c' + message, 'color: green', data); break;
+      default: console.log(message, data);
+    }
+  };
+
   // this function to handle key retrieval
   const handleKeyRetrieved = (keys) => {
     Logger.trace('App', 'handleKeyRetrieved', keys);
@@ -119,6 +145,12 @@ function App() {
       hasPublicKey: !!keys.publicKey,
       hasPrivateKey: !!keys.privateKey,
       isWalletProvider: !!keys.walletProvider,
+      isManualKey: !!keys.manualKey
+    });
+    
+    addDebugLog('success', 'Encryption keys retrieved', {
+      publicKeyLength: keys.publicKey ? keys.publicKey.length : 0,
+      hasPrivateKey: !!keys.privateKey,
       isManualKey: !!keys.manualKey
     });
   };
@@ -615,6 +647,12 @@ function App() {
       setLoading(true);
       setError("");
       setSuccess("");
+      
+      addDebugLog('info', 'Starting secret splitting process', {
+        secretLength: secret.length,
+        parts,
+        threshold
+      });
   
       // Encrypt the secret first - this is the critical security step!
       Logger.info('App', 'handleSplitSecret', 'Encrypting secret before sending to blockchain');
@@ -625,19 +663,27 @@ function App() {
       const recipientKeys = [encryptionKeys.publicKey];
       Logger.debug('App', 'handleSplitSecret', { recipientKeysCount: recipientKeys.length });
       
+      addDebugLog('info', 'Encrypting with recipient keys', {
+        keyCount: recipientKeys.length,
+        firstKeyPreview: recipientKeys[0] ? recipientKeys[0].substring(0, 20) + '...' : 'none'
+      });
+      
       const encryptedPackage = await WalletIntegratedEncryption.encryptForRecipients(
         secret,
         recipientKeys
       );
       Logger.debug('App', 'handleSplitSecret', { encryptedPackageSize: encryptedPackage.length });
+      addDebugLog('success', 'Secret encrypted', { packageSize: encryptedPackage.length });
       
       // Convert to hex format for blockchain
       const encryptedHex = WalletIntegratedEncryption.toHex(encryptedPackage);
       Logger.debug('App', 'handleSplitSecret', { encryptedHexSize: encryptedHex.length });
+      addDebugLog('info', 'Converted to hex for blockchain', { hexSize: encryptedHex.length });
       
       // Convert the hex string to bytes for the contract
       const encryptedBytes = ethers.utils.arrayify(encryptedHex);
       Logger.debug('App', 'handleSplitSecret', { encryptedBytesSize: encryptedBytes.length });
+      addDebugLog('info', 'Converted to bytes for contract', { bytesSize: encryptedBytes.length });
   
       // Call the contract with the encrypted data
       Logger.info('App', 'handleSplitSecret', 'Sending encrypted secret to blockchain');
@@ -646,6 +692,10 @@ function App() {
       let tx;
       if (filteredOwners.length === parseInt(parts)) {
         Logger.debug('App', 'handleSplitSecret', 'Using specified owners for shares');
+        addDebugLog('info', 'Using specified owners for shares', { 
+          ownersCount: filteredOwners.length
+        });
+        
         tx = await registryContract.splitAndDeploy(
           encryptedBytes,
           parts,
@@ -655,6 +705,8 @@ function App() {
         );
       } else {
         Logger.debug('App', 'handleSplitSecret', 'Using default owner (caller) for shares');
+        addDebugLog('info', 'Using caller as default owner for all shares');
+        
         tx = await registryContract.splitAndDeploy(
           encryptedBytes,
           parts,
@@ -666,15 +718,22 @@ function App() {
   
       Logger.info('App', 'handleSplitSecret', 'Transaction submitted, waiting for confirmation');
       setSuccess("Transaction submitted, waiting for confirmation...");
+      addDebugLog('info', 'Transaction submitted', { txHash: tx.hash });
+      
       const receipt = await tx.wait();
       Logger.debug('App', 'handleSplitSecret', { 
         transactionHash: receipt.transactionHash,
         blockNumber: receipt.blockNumber,
         gasUsed: receipt.gasUsed.toString()
       });
+      addDebugLog('success', 'Transaction confirmed', { 
+        blockNumber: receipt.blockNumber,
+        gasUsed: receipt.gasUsed.toString()
+      });
   
       Logger.success('App', 'handleSplitSecret', 'Secret successfully split and stored');
       setSuccess("Success! Your secret is now encrypted and stored on the blockchain.");
+      addDebugLog('success', 'Secret successfully split and stored');
   
       // Reset form
       setSecret("");
@@ -689,6 +748,9 @@ function App() {
     } catch (err) {
       Logger.error('App', 'handleSplitSecret', err);
       setError("Error splitting secret: " + (err.message || "Unknown error"));
+      addDebugLog('error', 'Error splitting secret', { 
+        message: err.message || "Unknown error" 
+      });
       setLoading(false);
     }
   };
@@ -719,6 +781,106 @@ function App() {
     return sharesToUse.some(
       (s) => s.secretId === secretId && s.shareId === shareId
     );
+  };
+
+  // Examine reconstructed data (Debug function)
+  const examineReconstructedData = async (secretId, shareIndices) => {
+    try {
+      Logger.info('App', 'examineReconstructedData', `Examining data for secret ${secretId}`);
+      addDebugLog('info', 'Examining reconstructed data', { 
+        secretId, 
+        shareIndices 
+      });
+      
+      const encryptedResult = await registryContract.reconstructSecret(
+        secretId,
+        shareIndices
+      );
+      
+      // Store the raw data for inspection
+      setLastRawData(encryptedResult);
+      
+      Logger.debug('App', 'examineReconstructedData', { 
+        resultType: typeof encryptedResult,
+        resultLength: encryptedResult.length || 0
+      });
+      
+      addDebugLog('info', 'Raw result details', {
+        type: typeof encryptedResult,
+        length: encryptedResult.length || 0,
+        isArray: Array.isArray(encryptedResult),
+        isBuffer: encryptedResult instanceof Uint8Array
+      });
+      
+      // Try different ways of converting the result
+      const asString = String(encryptedResult);
+      addDebugLog('debug', 'As string', asString.substring(0, 100) + '...');
+      
+      // Convert to hex for inspection
+      let hexString = "";
+      try {
+        hexString = "0x" + Array.from(new Uint8Array(encryptedResult))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+          
+        addDebugLog('debug', 'As hex', hexString.substring(0, 100) + '...');
+      } catch (err) {
+        addDebugLog('error', 'Error converting to hex', err.message);
+      }
+      
+      // Try to inspect the raw bytes
+      try {
+        const bytes = new Uint8Array(encryptedResult);
+        const byteInfo = {
+          length: bytes.length,
+          first20Bytes: Array.from(bytes.slice(0, 20)),
+          contains0: bytes.includes(0),
+          containsNonAscii: Array.from(bytes).some(b => b > 127)
+        };
+        addDebugLog('debug', 'Byte analysis', byteInfo);
+      } catch (err) {
+        addDebugLog('error', 'Error analyzing bytes', err.message);
+      }
+      
+      // Try to parse it as JSON if possible
+      try {
+        // First try direct parsing
+        const jsonAttempt = JSON.parse(String(encryptedResult));
+        addDebugLog('success', 'Successfully parsed as JSON directly', 
+          typeof jsonAttempt === 'object' ? 'Valid JSON object' : typeof jsonAttempt
+        );
+      } catch (err) {
+        addDebugLog('info', 'Not directly parseable as JSON', err.message);
+        
+        // Try fromHex conversion
+        try {
+          const fromHexResult = WalletIntegratedEncryption.fromHex(hexString);
+          addDebugLog('info', 'fromHex result', {
+            length: fromHexResult.length,
+            preview: fromHexResult.substring(0, 100) + '...'
+          });
+          
+          try {
+            // Try to parse the fromHex result as JSON
+            const jsonFromHex = JSON.parse(fromHexResult);
+            addDebugLog('success', 'Successfully parsed fromHex result as JSON', 
+              typeof jsonFromHex === 'object' ? 'Valid JSON object' : typeof jsonFromHex
+            );
+          } catch (err) {
+            addDebugLog('warn', 'fromHex result is not valid JSON', err.message);
+          }
+        } catch (err) {
+          addDebugLog('error', 'Error in fromHex conversion', err.message);
+        }
+      }
+      
+      Logger.success('App', 'examineReconstructedData', 'Data examination complete');
+      return "Data examination complete - check debug panel";
+    } catch (err) {
+      Logger.error('App', 'examineReconstructedData', err);
+      addDebugLog('error', 'Error examining data', err.message);
+      return "Error: " + err.message;
+    }
   };
 
   // Reconstruct secret with decryption
@@ -752,6 +914,12 @@ function App() {
       relevantShareIdsCount: relevantShareIds.length,
       secretDetails: secretDetails[secretToReconstruct]
     });
+    
+    addDebugLog('info', 'Starting secret reconstruction', {
+      secretId: secretToReconstruct,
+      shareCount: relevantShareIds.length,
+      threshold: secretDetails[secretToReconstruct]?.threshold
+    });
   
     // Verify we have enough shares
     const threshold = secretDetails[secretToReconstruct]?.threshold;
@@ -770,21 +938,28 @@ function App() {
       // Call the contract method to reconstruct the encrypted package
       Logger.info('App', 'handleReconstructSecret', 'Retrieving encrypted data from blockchain');
       setSuccess("Retrieving encrypted data from blockchain...");
+      addDebugLog('info', 'Calling reconstructSecret on contract', { shareIndices: relevantShareIds });
       
       const encryptedResult = await registryContract.reconstructSecret(
         secretToReconstruct,
         relevantShareIds
       );
       Logger.debug('App', 'handleReconstructSecret', { encryptedResultSize: encryptedResult.length });
+      addDebugLog('success', 'Retrieved encrypted data', { resultSize: encryptedResult.length });
+      
+      // Store the raw data for debugging
+      setLastRawData(encryptedResult);
   
       // Convert result to string package
       const encryptedHex = "0x" + Array.from(new Uint8Array(encryptedResult))
         .map(b => b.toString(16).padStart(2, '0'))
         .join('');
       Logger.debug('App', 'handleReconstructSecret', { encryptedHexSize: encryptedHex.length });
+      addDebugLog('info', 'Converted to hex', { hexSize: encryptedHex.length });
         
       const encryptedPackage = WalletIntegratedEncryption.fromHex(encryptedHex);
       Logger.debug('App', 'handleReconstructSecret', { encryptedPackageSize: encryptedPackage.length });
+      addDebugLog('info', 'Converted from hex to string', { packageSize: encryptedPackage.length });
   
       // Decrypt using the appropriate method
       Logger.info('App', 'handleReconstructSecret', 'Decrypting data');
@@ -795,6 +970,7 @@ function App() {
       if (encryptionKeys.manualKey && encryptionKeys.privateKey) {
         // Use manual decryption with private key
         Logger.debug('App', 'handleReconstructSecret', 'Using manual key decryption');
+        addDebugLog('info', 'Using manual private key for decryption');
         decryptedSecret = await WalletIntegratedEncryption.decryptWithPrivateKey(
           encryptedPackage,
           encryptionKeys.privateKey
@@ -802,6 +978,7 @@ function App() {
       } else {
         // Use wallet for decryption
         Logger.debug('App', 'handleReconstructSecret', 'Using wallet decryption');
+        addDebugLog('info', 'Using wallet for decryption');
         decryptedSecret = await WalletIntegratedEncryption.decryptWithWallet(
           encryptedPackage,
           encryptionKeys.walletProvider || provider,
@@ -810,6 +987,10 @@ function App() {
       }
       
       Logger.success('App', 'handleReconstructSecret', 'Secret decrypted successfully');
+      addDebugLog('success', 'Secret decrypted successfully', { 
+        secretLength: decryptedSecret.length 
+      });
+      
       setReconstructedSecret(decryptedSecret);
       setSuccess("Secret decrypted successfully!");
   
@@ -818,8 +999,10 @@ function App() {
         Logger.info('App', 'handleReconstructSecret', 'Recording access on blockchain');
         await registryContract.recordSecretAccess(secretToReconstruct);
         Logger.success('App', 'handleReconstructSecret', 'Access recorded on blockchain');
+        addDebugLog('info', 'Access recorded on blockchain');
       } catch (recordError) {
         Logger.warn('App', 'handleReconstructSecret', 'Could not record access on blockchain');
+        addDebugLog('warn', 'Could not record access on blockchain', recordError.message);
         console.warn("Could not record access:", recordError);
       }
   
@@ -828,6 +1011,7 @@ function App() {
       setLoading(false);
     } catch (err) {
       Logger.error('App', 'handleReconstructSecret', err);
+      addDebugLog('error', 'Error reconstructing secret', err.message);
       setError(`Error: ${err.message || "Unknown error"}`);
       setLoading(false);
     }
@@ -1020,37 +1204,106 @@ function App() {
     }
   };
 
-  // Debug helper function
-  const logDebugState = () => {
-    console.group('==== App State Debug ====');
-    console.log('Account:', account);
-    console.log('Registry Address:', registryAddress);
-    console.log('Registry Contract:', !!registryContract);
-    console.log('Login Method:', loginMethod);
-    console.log('User Keys:', userKeys);
-    console.log('Encryption Keys:', {
-      hasPublicKey: !!encryptionKeys.publicKey,
-      hasPrivateKey: !!encryptionKeys.privateKey,
-      isManualKey: encryptionKeys.manualKey,
-      isMetaMask: encryptionKeys.isMetaMask,
-      hasWalletProvider: !!encryptionKeys.walletProvider
+  // Debug handler for secret reconstruction
+  const handleDebugReconstruction = async () => {
+    if (!secretToReconstruct) {
+      addDebugLog('error', 'No secret selected for debugging');
+      return;
+    }
+    
+    const relevantShareIds = sharesToUse
+      .filter((s) => s.secretId === secretToReconstruct)
+      .map((s) => parseInt(s.shareId));
+    
+    if (relevantShareIds.length === 0) {
+      addDebugLog('error', 'No shares selected for debugging');
+      return;
+    }
+    
+    addDebugLog('info', 'Starting debug reconstruction', {
+      secretId: secretToReconstruct,
+      shares: relevantShareIds
     });
-    console.log('My Secrets:', mySecrets);
-    console.groupEnd();
-    return "Debug state logged to console";
+    
+    try {
+      const result = await examineReconstructedData(secretToReconstruct, relevantShareIds);
+      addDebugLog('success', 'Debug reconstruction complete', result);
+    } catch (err) {
+      addDebugLog('error', 'Debug reconstruction failed', err.message);
+    }
+  };
+
+  // Debug logState
+  const logState = () => {
+    const state = {
+      account,
+      isLoggedIn,
+      loginMethod,
+      registryAddress,
+      hasRegistryContract: !!registryContract,
+      secretsCount: mySecrets.length,
+      userKeys,
+      encryptionKeys: {
+        hasPublicKey: !!encryptionKeys.publicKey,
+        hasPrivateKey: !!encryptionKeys.privateKey,
+        isManualKey: encryptionKeys.manualKey,
+        hasWalletProvider: !!encryptionKeys.walletProvider
+      }
+    };
+    
+    Logger.debug('App', 'state', state);
+    addDebugLog('debug', 'Application State', state);
+    return state;
   };
 
   return (
     <div className="app-container">
       <h1>Shamir Secret Sharing System</h1>
 
-      {/* Debug button (for development only) */}
-      <button 
-        onClick={logDebugState} 
-        style={{position: 'fixed', bottom: '10px', right: '10px', zIndex: 9999, background: '#333', color: 'white', opacity: 0.7}}
-      >
-        Debug
-      </button>
+      {/* Debug and Tool Toggle Buttons */}
+      <div className="debug-toggles" style={{ position: 'fixed', top: '10px', right: '10px', zIndex: 9999 }}>
+        <button
+          onClick={() => setShowDebugPanel(!showDebugPanel)}
+          style={{
+            backgroundColor: showDebugPanel ? '#d32f2f' : '#1976d2',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            padding: '8px 16px',
+            marginRight: '10px',
+            cursor: 'pointer'
+          }}
+        >
+          {showDebugPanel ? 'Hide Debug Panel' : 'Show Debug Panel'}
+        </button>
+        
+        <button
+          onClick={() => setShowDebugTools(!showDebugTools)}
+          style={{
+            backgroundColor: showDebugTools ? '#d32f2f' : '#4caf50',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            padding: '8px 16px',
+            cursor: 'pointer'
+          }}
+        >
+          {showDebugTools ? 'Hide Debug Tools' : 'Show Debug Tools'}
+        </button>
+      </div>
+
+      {/* Debug Panel */}
+      {showDebugPanel && (
+        <DebugPanel 
+          logs={debugLogs}
+          addLog={addDebugLog}
+          logState={logState}
+          rawData={lastRawData}
+          secretId={secretToReconstruct}
+          selectedShares={sharesToUse.filter(s => s.secretId === secretToReconstruct)}
+          onDebugReconstruction={handleDebugReconstruction}
+        />
+      )}
 
       {!isLoggedIn ? (
         <div className="login-container">
@@ -1208,6 +1461,33 @@ function App() {
           {error && <div className="error-message">{error}</div>}
           {success && <div className="success-message">{success}</div>}
           {loading && <div className="loading-message">Loading...</div>}
+
+          {/* Debug Tools Section */}
+          {showDebugTools && (
+            <div className="debug-tools-container" style={{ marginBottom: '30px' }}>
+              <h2>Debugging Tools</h2>
+              <div style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
+                <button onClick={logState}>Log App State to Console</button>
+                <button onClick={handleDebugReconstruction} disabled={!secretToReconstruct}>
+                  Debug Selected Secret
+                </button>
+              </div>
+              
+              <ShamirBlockchainTester 
+                provider={provider}
+                signer={signer}
+                registryContract={registryContract}
+                addLog={addDebugLog}
+              />
+              
+              <DirectReconstruction
+                provider={provider}
+                signer={signer}
+                registryContract={registryContract}
+                addLog={addDebugLog}
+              />
+            </div>
+          )}
 
           {/* Key Management Section */}
           <div className="app-section">
@@ -1532,6 +1812,26 @@ function App() {
                               .map((s) => s.shareId)
                               .join(", ")}
                           </p>
+                          
+                          {/* Debug button */}
+                          {showDebugTools && (
+                            <button 
+                              type="button" 
+                              onClick={handleDebugReconstruction}
+                              className="debug-btn"
+                              style={{
+                                marginTop: '10px',
+                                backgroundColor: '#ff5722',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                padding: '5px 10px',
+                                fontSize: '12px'
+                              }}
+                            >
+                              Debug Reconstruct
+                            </button>
+                          )}
                         </div>
                       ) : (
                         <p className="share-selection-hint">
