@@ -69,4 +69,4 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
 
-test CA on kub testnet : 0xc6D2df48CA21C40c1B78E486f594191B0ed0108D
+test CA on op testnet : 0xb5fc7a7c5B6Ce99472bD94eBF22e556E82AE0c1d
