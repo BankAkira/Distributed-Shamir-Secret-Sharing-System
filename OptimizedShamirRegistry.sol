@@ -435,7 +435,7 @@ contract OptimizedShamirRegistry is IShamirRegistry {
         emit AccessManagementAction(secretId, shareIndex, action, user, performer);
     }
 
-        /**
+    /**
     * @dev Records an access to a secret without revealing the secret
     * @param secretId The ID of the secret being accessed
     */
