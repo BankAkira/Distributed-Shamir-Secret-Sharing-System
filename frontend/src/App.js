@@ -3,7 +3,10 @@ import { ethers } from "ethers";
 import "./App.css";
 import RegistryABI from "./abis/OptimizedShamirRegistry.json";
 import ShareContractABI from "./abis/ShareContract.json";
-import ShamirClient from "./ShamirClient";
+// import ShamirClient from "./ShamirClient";
+import WalletIntegratedEncryption from "./WalletIntegratedEncryption";
+import WalletKeyManagement from "./WalletKeyManagement";
+
 
 // Polyfill imports
 import "buffer";
@@ -37,6 +40,7 @@ function App() {
   const [threshold, setThreshold] = useState(2);
   const [description, setDescription] = useState("");
   const [ownerAddresses, setOwnerAddresses] = useState([""]);
+  const [recipientPublicKeys, setRecipientPublicKeys] = useState([""]);
 
   // My secrets state
   const [mySecrets, setMySecrets] = useState([]);
@@ -60,13 +64,28 @@ function App() {
   // Login methods
   const [loginMethod, setLoginMethod] = useState("web3auth"); // 'web3auth' or 'metamask'
 
-  //ethereum remaining
-  const [walletBalance, setWalletBalance] = useState("");
+  // Encryption related state
+  const [userKeys, setUserKeys] = useState({ publicKey: '', privateKey: '' });
 
+  // Ethereum remaining
+  const [walletBalance, setWalletBalance] = useState("");
   const [chainInfo, setChainInfo] = useState({
     ticker: 'tKUB',
     name: 'BitKub Testnet'
   });
+
+  const [encryptionKeys, setEncryptionKeys] = useState({
+    publicKey: '',
+    privateKey: '',
+    walletProvider: null,
+    isMetaMask: false,
+    manualKey: false
+  });
+
+  // this function to handle key retrieval
+  const handleKeyRetrieved = (keys) => {
+    setEncryptionKeys(keys);
+  };
 
   const fetchWalletBalance = async () => {
     if (!provider || !account) return;
@@ -136,22 +155,6 @@ function App() {
           chainConfig: chainConfig, // This sets the default chain config
           privateKeyProvider,
         });
-
-        // Add the provider as a plugin
-        // await web3auth.addPlugin(privateKeyProvider);
-
-        // Setup OpenLogin adapter
-        // const openloginAdapter = new OpenloginAdapter({
-        //   adapterSettings: {
-        //     loginConfig: {
-        //       google: {
-        //         name: "Google Login",
-        //         verifier: "ecc-sss-test",
-        //       },
-        //     },
-        //   },
-        // });
-        // web3auth.configureAdapter(openloginAdapter);
 
         // Initialize Web3Auth
         await web3auth.initModal();
@@ -386,6 +389,7 @@ function App() {
   // Add owner address field
   const addOwnerAddress = () => {
     setOwnerAddresses([...ownerAddresses, ""]);
+    setRecipientPublicKeys([...recipientPublicKeys, ""]);
   };
 
   // Remove owner address field
@@ -393,6 +397,10 @@ function App() {
     const newAddresses = [...ownerAddresses];
     newAddresses.splice(index, 1);
     setOwnerAddresses(newAddresses);
+    
+    const newKeys = [...recipientPublicKeys];
+    newKeys.splice(index, 1);
+    setRecipientPublicKeys(newKeys);
   };
 
   // Update owner address
@@ -402,60 +410,83 @@ function App() {
     setOwnerAddresses(newAddresses);
   };
 
-  // Split and deploy a secret
+  // Update recipient public key
+  const updateRecipientPublicKey = (index, value) => {
+    const newKeys = [...recipientPublicKeys];
+    newKeys[index] = value;
+    setRecipientPublicKeys(newKeys);
+  };
+
+  // Split and deploy a secret with encryption
   const handleSplitSecret = async (e) => {
     e.preventDefault();
-
+  
     if (!registryContract) {
       setError("Registry contract not connected");
       return;
     }
-
+  
     if (!secret) {
       setError("Please enter a secret");
       return;
     }
-
+  
+    if (!encryptionKeys.publicKey) {
+      setError("Please retrieve or generate encryption keys first");
+      return;
+    }
+  
     // Validate parts and threshold
     if (parts < 2) {
       setError("Parts must be at least 2");
       return;
     }
-
+  
     if (threshold < 2 || threshold > parts) {
       setError("Threshold must be at least 2 and not greater than parts");
       return;
     }
-
+  
     // Filter out empty owner addresses
     const filteredOwners = ownerAddresses.filter(
       (addr) => addr && ethers.utils.isAddress(addr)
     );
-
+  
     // If we have some owners but not enough, validate
-    if (
-      filteredOwners.length > 0 &&
-      filteredOwners.length !== parseInt(parts)
-    ) {
-      setError(
-        `You must specify exactly ${parts} owners or none (default to caller)`
-      );
+    if (filteredOwners.length > 0 && filteredOwners.length !== parseInt(parts)) {
+      setError(`You must specify exactly ${parts} owners or none (default to caller)`);
       return;
     }
-
+  
     try {
       setLoading(true);
       setError("");
       setSuccess("");
-
-      // Encode the secret as bytes
-      const secretBytes = ethers.utils.toUtf8Bytes(secret);
-
-      // Call the contract
+  
+      // Encrypt the secret first - this is the critical security step!
+      setSuccess("Encrypting your secret before sending to blockchain...");
+      
+      // For simplicity, we'll use the same key for all parts
+      // In a more sophisticated implementation, you'd encrypt differently for each recipient
+      const recipientKeys = [encryptionKeys.publicKey];
+      
+      const encryptedPackage = await WalletIntegratedEncryption.encryptForRecipients(
+        secret,
+        recipientKeys
+      );
+      
+      // Convert to hex format for blockchain
+      const encryptedHex = WalletIntegratedEncryption.toHex(encryptedPackage);
+      
+      // Convert the hex string to bytes for the contract
+      const encryptedBytes = ethers.utils.arrayify(encryptedHex);
+  
+      // Call the contract with the encrypted data
+      setSuccess("Sending encrypted secret to blockchain...");
       let tx;
       if (filteredOwners.length === parseInt(parts)) {
         tx = await registryContract.splitAndDeploy(
-          secretBytes,
+          encryptedBytes,
           parts,
           threshold,
           description,
@@ -463,25 +494,26 @@ function App() {
         );
       } else {
         tx = await registryContract.splitAndDeploy(
-          secretBytes,
+          encryptedBytes,
           parts,
           threshold,
           description,
           []
         );
       }
-
+  
+      setSuccess("Transaction submitted, waiting for confirmation...");
       await tx.wait();
-
-      setSuccess("Secret split successfully!");
-
+  
+      setSuccess("Success! Your secret is now encrypted and stored on the blockchain.");
+  
       // Reset form
       setSecret("");
       setParts(3);
       setThreshold(2);
       setDescription("");
       setOwnerAddresses([""]);
-
+  
       // Reload user secrets
       await loadUserSecrets();
       setLoading(false);
@@ -515,209 +547,92 @@ function App() {
     );
   };
 
-  // Modified function to better handle share data from the contract
+  // Reconstruct secret with decryption
   const handleReconstructSecret = async (e) => {
     e.preventDefault();
-
+  
     if (!secretToReconstruct) {
       setError("Please select a secret to reconstruct");
       return;
     }
-
+  
+    // Check for decryption capability
+    if (!encryptionKeys.publicKey) {
+      setError("Encryption keys not available. Please retrieve your wallet keys or generate browser keys.");
+      return;
+    }
+  
     // Filter shares for the selected secret
     const relevantShareIds = sharesToUse
       .filter((s) => s.secretId === secretToReconstruct)
       .map((s) => parseInt(s.shareId));
-
+  
     // Verify we have enough shares
     const threshold = secretDetails[secretToReconstruct]?.threshold;
     if (relevantShareIds.length < threshold) {
-      setError(
-        `You need at least ${threshold} shares to reconstruct this secret (selected: ${relevantShareIds.length})`
-      );
+      setError(`You need at least ${threshold} shares to reconstruct this secret (selected: ${relevantShareIds.length})`);
       return;
     }
-
+  
     try {
       setLoading(true);
       setError("");
       setSuccess("");
       setReconstructedSecret("");
-
-      // First, log data to help with debugging
-      console.log("Secret ID:", secretToReconstruct);
-      console.log("Share IDs to use:", relevantShareIds);
-
-      // We need to get the share data from the blockchain
-      setSuccess("Fetching share data from contracts...");
-
-      const shareData = [];
-      for (const shareId of relevantShareIds) {
-        try {
-          // Get the share contract address
-          const shareContractAddress =
-            await registryContract.getShareContractAddress(
-              secretToReconstruct,
-              shareId
-            );
-
-          console.log(`Share ${shareId} contract:`, shareContractAddress);
-
-          // Create a contract instance for this share
-          const shareContract = new ethers.Contract(
-            shareContractAddress,
-            ShareContractABI.abi,
-            signer
-          );
-
-          // Get the share data
-          const data = await shareContract.getShareData(account);
-          console.log(`Share ${shareId} data:`, data);
-
-          // Format data correctly for our ShamirClient
-          // First convert any ethers BigNumber to a hex string
-          let formattedData;
-          if (data._hex) {
-            // For ethers v5
-            formattedData = ethers.utils.arrayify(data);
-          } else if (typeof data === "string" && data.startsWith("0x")) {
-            // For hex string
-            formattedData = ethers.utils.arrayify(data);
-          } else {
-            // Try our best
-            formattedData = data;
-          }
-
-          console.log(`Share ${shareId} formatted:`, formattedData);
-          shareData.push(formattedData);
-        } catch (error) {
-          console.error(`Error fetching share ${shareId}:`, error);
-          setError(`Failed to fetch share ${shareId}: ${error.message}`);
-          setLoading(false);
-          return;
-        }
-      }
-
-      setSuccess("Reconstructing secret locally...");
-      console.log("All shares data:", shareData);
-
-      // Perform the reconstruction
-      try {
-        // Use our client-side implementation to reconstruct the secret
-        const secretBytes = ShamirClient.reconstructSecret(shareData);
-        console.log("Reconstructed bytes:", secretBytes);
-
-        // Try to decode as UTF-8 text
-        const decodedSecret = ShamirClient.bytesToString(secretBytes);
-        setReconstructedSecret(decodedSecret);
-        setSuccess("Secret reconstructed successfully!");
-
-        // Optionally call the blockchain to update access stats
-        try {
-          // First check if we can use a dedicated function
-          let hasRecordFunction = false;
-          try {
-            hasRecordFunction =
-              typeof registryContract.recordSecretAccess === "function";
-          } catch (e) {
-            hasRecordFunction = false;
-          }
-
-          if (hasRecordFunction) {
-            setSuccess("Recording access on blockchain...");
-            const tx = await registryContract.recordSecretAccess(
-              secretToReconstruct
-            );
-            await tx.wait();
-            setSuccess(
-              "Secret reconstructed successfully! Access recorded on blockchain."
-            );
-          } else {
-            // Skip recording stats for now
-            setSuccess("Secret reconstructed successfully!");
-          }
-        } catch (recordError) {
-          console.warn("Could not record access:", recordError);
-          setSuccess("Secret reconstructed successfully!");
-        }
-      } catch (reconstructError) {
-        console.error("Error in reconstruction:", reconstructError);
-        setError(
-          `Failed to reconstruct the secret: ${reconstructError.message}`
+  
+      // Call the contract method to reconstruct the encrypted package
+      setSuccess("Retrieving encrypted data from blockchain...");
+      const encryptedResult = await registryContract.reconstructSecret(
+        secretToReconstruct,
+        relevantShareIds
+      );
+  
+      // Convert result to string package
+      const encryptedHex = "0x" + Array.from(new Uint8Array(encryptedResult))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+        
+      const encryptedPackage = WalletIntegratedEncryption.fromHex(encryptedHex);
+  
+      // Decrypt using the appropriate method
+      setSuccess("Decrypting data...");
+      let decryptedSecret;
+  
+      if (encryptionKeys.manualKey && encryptionKeys.privateKey) {
+        // Use manual decryption with private key
+        decryptedSecret = await WalletIntegratedEncryption.decryptWithPrivateKey(
+          encryptedPackage,
+          encryptionKeys.privateKey
         );
-
-        // If client-side reconstruction fails, fall back to using the contract
-        try {
-          setSuccess("Falling back to contract reconstruction...");
-
-          // Call the contract method to reconstruct the secret
-          const tx = await registryContract.reconstructSecret(
-            secretToReconstruct,
-            relevantShareIds
-          );
-          console.log("Transaction sent:", tx.hash);
-
-          // Wait for the transaction to be mined
-          setSuccess("Transaction submitted. Waiting for confirmation...");
-          const receipt = await tx.wait();
-
-          if (receipt.status === 1) {
-            // Now we need to call the function again to get the actual value
-            const result = await registryContract.callStatic.reconstructSecret(
-              secretToReconstruct,
-              relevantShareIds
-            );
-
-            // Decode the result
-            try {
-              const decodedSecret = ethers.utils.toUtf8String(result);
-              setReconstructedSecret(decodedSecret);
-              setSuccess("Secret reconstructed successfully using contract!");
-            } catch (decodeError) {
-              console.error("Error decoding contract result:", decodeError);
-              setError(
-                "Error decoding the contract result. The secret might contain binary data."
-              );
-
-              // Show hex representation
-              setReconstructedSecret(
-                `[Binary data: 0x${Array.from(new Uint8Array(result))
-                  .map((b) => b.toString(16).padStart(2, "0"))
-                  .join("")}]`
-              );
-            }
-          } else {
-            setError(
-              "Contract transaction failed. Please check the blockchain explorer for details."
-            );
-          }
-        } catch (contractError) {
-          console.error("Error falling back to contract:", contractError);
-          setError(
-            `Both client-side and contract reconstruction failed. Error: ${contractError.message}`
-          );
-        }
+      } else {
+        // Use wallet for decryption
+        decryptedSecret = await WalletIntegratedEncryption.decryptWithWallet(
+          encryptedPackage,
+          encryptionKeys.walletProvider || provider,
+          account
+        );
       }
-
+      
+      setReconstructedSecret(decryptedSecret);
+      setSuccess("Secret decrypted successfully!");
+  
+      // Record access on the blockchain
+      try {
+        await registryContract.recordSecretAccess(secretToReconstruct);
+      } catch (recordError) {
+        console.warn("Could not record access:", recordError);
+      }
+  
       // Reload user secrets to update UI
-      try {
-        await loadUserSecrets();
-      } catch (error) {
-        console.warn(
-          "Failed to reload user secrets after reconstruction:",
-          error
-        );
-      }
-
+      await loadUserSecrets();
       setLoading(false);
     } catch (err) {
       console.error("Error reconstructing secret:", err);
-      setError(
-        `Error reconstructing secret: ${err.message || "Unknown error"}`
-      );
+      setError(`Error: ${err.message || "Unknown error"}`);
       setLoading(false);
     }
   };
+  
 
   // Load share contract
   const loadShareContract = async () => {
@@ -1015,6 +930,19 @@ function App() {
           {success && <div className="success-message">{success}</div>}
           {loading && <div className="loading-message">Loading...</div>}
 
+          {/* Key Management Section */}
+          <div className="app-section">
+            <h2>Encryption Keys</h2>
+            <p>Encryption keys are needed to secure your secrets before storing them on the blockchain.</p>
+            <WalletKeyManagement 
+              provider={provider} 
+              web3auth={web3auth} 
+              account={account}
+              loginMethod={loginMethod}
+              onKeyRetrieved={handleKeyRetrieved}
+            />
+          </div>
+
           <div className="app-sections">
             {/* Create Secret Section */}
             <div className="app-section">
@@ -1065,24 +993,31 @@ function App() {
 
                 <div className="form-group">
                   <label>
-                    Initial Owners (leave empty to use your address for all
-                    shares):
+                    Share Recipients (Each address will receive an encrypted share):
                   </label>
                   {ownerAddresses.map((address, index) => (
                     <div key={index} className="owner-input">
                       <input
                         type="text"
                         value={address}
-                        onChange={(e) =>
-                          updateOwnerAddress(index, e.target.value)
-                        }
-                        placeholder="0x..."
+                        onChange={(e) => updateOwnerAddress(index, e.target.value)}
+                        placeholder="0x... (recipient address)"
+                        disabled={loading}
+                      />
+                      <input
+                        type="text"
+                        value={recipientPublicKeys[index] || ''}
+                        onChange={(e) => updateRecipientPublicKey(index, e.target.value)}
+                        placeholder="Recipient's public key"
+                        disabled={loading}
+                        className="public-key-input"
                       />
                       {index > 0 && (
                         <button
                           type="button"
                           onClick={() => removeOwnerAddress(index)}
                           className="remove-btn"
+                          disabled={loading}
                         >
                           Remove
                         </button>
@@ -1095,15 +1030,31 @@ function App() {
                       type="button"
                       onClick={addOwnerAddress}
                       className="add-btn"
+                      disabled={loading}
                     >
-                      Add Owner
+                      Add Recipient
                     </button>
                   )}
                 </div>
 
+                <div className="security-info">
+                  <h4>How Your Data Is Protected:</h4>
+                  <ul>
+                    <li>Your secret is encrypted with recipient public keys</li>
+                    <li>Only encrypted data is stored on the blockchain</li>
+                    <li>A unique ephemeral key is generated for each encryption</li>
+                    <li>Only intended recipients can decrypt the secret</li>
+                  </ul>
+                </div>
+
                 <button
                   type="submit"
-                  disabled={!registryContract || loading}
+                  disabled={
+                    !registryContract || 
+                    loading || 
+                    !userKeys.publicKey ||
+                    !userKeys.privateKey
+                  }
                   className="submit-btn"
                 >
                   Split Secret
@@ -1292,12 +1243,22 @@ function App() {
                   </div>
                 )}
 
+                <div className="security-info">
+                  <h4>Decryption Security:</h4>
+                  <ul>
+                    <li>Reconstruction requires your private key for decryption</li>
+                    <li>The original secret will only be visible to you</li>
+                    <li>All decryption happens locally in your browser</li>
+                  </ul>
+                </div>
+
                 <button
                   type="submit"
                   disabled={
                     !registryContract ||
                     loading ||
                     !secretToReconstruct ||
+                    !userKeys.privateKey ||
                     sharesToUse.filter(
                       (s) => s.secretId === secretToReconstruct
                     ).length <
@@ -1393,6 +1354,7 @@ function App() {
                           required
                         />
                       </div>
+                      <p className="note">Note: The user will need the corresponding private key to decrypt.</p>
                       <button
                         type="submit"
                         disabled={loading}

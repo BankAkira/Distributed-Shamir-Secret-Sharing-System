@@ -845,3 +845,355 @@ button:disabled {
 .balance-updating {
   animation: balancePulse 1s ease-in-out;
 }
+
+/* Add these styles to your existing App.css */
+
+/* Key Management Styles */
+.key-management {
+  background-color: #f8f9fa;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.key-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 15px 0;
+}
+
+.key-btn {
+  padding: 10px 15px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.key-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.key-btn:active {
+  transform: translateY(0);
+}
+
+.generate-btn {
+  background-color: #4caf50;
+  color: white;
+}
+
+.generate-btn:hover {
+  background-color: #43a047;
+}
+
+.download-btn {
+  background-color: #2196f3;
+  color: white;
+}
+
+.download-btn:hover {
+  background-color: #1e88e5;
+}
+
+.save-btn {
+  background-color: #ff9800;
+  color: white;
+}
+
+.save-btn:hover {
+  background-color: #fb8c00;
+}
+
+.file-upload {
+  position: relative;
+  overflow: hidden;
+  display: inline-block;
+}
+
+.upload-label {
+  background-color: #9c27b0;
+  color: white;
+  padding: 10px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-block;
+  transition: all 0.2s ease;
+}
+
+.upload-label:hover {
+  background-color: #8e24aa;
+}
+
+#key-upload {
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+.key-warning {
+  background-color: #fff3cd;
+  border: 1px solid #ffeeba;
+  color: #856404;
+  padding: 12px;
+  border-radius: 4px;
+  margin: 15px 0;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(255, 193, 7, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0); }
+}
+
+.key-success {
+  background-color: #d4edda;
+  border: 1px solid #c3e6cb;
+  color: #155724;
+  padding: 12px;
+  border-radius: 4px;
+  margin: 15px 0;
+}
+
+.key-display {
+  background-color: #f1f1f1;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 15px;
+  margin-top: 15px;
+}
+
+.key-field {
+  margin-bottom: 10px;
+}
+
+.key-field label {
+  display: block;
+  font-weight: bold;
+  margin-bottom: 5px;
+  color: #555;
+}
+
+.key-value {
+  background-color: #fff;
+  padding: 10px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+  overflow: hidden;
+}
+
+.truncated-key {
+  font-family: monospace;
+  word-break: break-all;
+  color: #007bff;
+}
+
+.hidden-key {
+  font-family: monospace;
+  color: #999;
+  letter-spacing: 2px;
+}
+
+.no-key {
+  color: #999;
+  font-style: italic;
+}
+
+/* Recipient Input Styles */
+.public-key-input {
+  flex: 1;
+  margin-left: 10px;
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.owner-input {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.owner-input input[type="text"]:first-child {
+  width: 200px;
+  flex-shrink: 0;
+}
+
+/* Security Info Box */
+.security-info {
+  background-color: #e3f2fd;
+  border-left: 4px solid #2196f3;
+  padding: 15px;
+  margin: 20px 0;
+  border-radius: 4px;
+}
+
+.security-info h4 {
+  margin-top: 0;
+  color: #0d47a1;
+}
+
+.security-info ul {
+  margin-bottom: 0;
+  padding-left: 20px;
+}
+
+.security-info li {
+  margin-bottom: 8px;
+  color: #333;
+}
+
+/* Form notes */
+.note {
+  font-size: 14px;
+  color: #666;
+  font-style: italic;
+  margin: 5px 0 10px 0;
+}
+
+/* Improve Share Management section */
+.share-action {
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.action-btn {
+  width: 100%;
+  margin-top: 10px;
+  background-color: #1976d2;
+  border: none;
+  color: white;
+  padding: 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.action-btn:hover {
+  background-color: #1565c0;
+}
+
+/* Mobile responsiveness improvements */
+@media (max-width: 768px) {
+  .key-actions {
+    flex-direction: column;
+  }
+  
+  .key-btn, .upload-label {
+    width: 100%;
+    text-align: center;
+  }
+  
+  .owner-input {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .owner-input input[type="text"]:first-child {
+    width: 100%;
+  }
+  
+  .public-key-input {
+    margin-left: 0;
+    margin-top: 8px;
+  }
+  
+  .share-management {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
+.wallet-key-management {
+  background-color: #f8f9fa;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.key-mode-toggle {
+  display: flex;
+  gap: 0;
+  margin-bottom: 20px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid #ddd;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: 10px 15px;
+  border: none;
+  background-color: #f1f1f1;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.mode-btn.active {
+  background-color: #3f51b5;
+  color: white;
+  font-weight: bold;
+}
+
+.mode-btn:not(.active):hover {
+  background-color: #e0e0e0;
+}
+
+.section-description {
+  margin-bottom: 15px;
+  color: #666;
+}
+
+.key-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 15px;
+}
+
+.key-status.success {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.status-icon {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.wallet-info {
+  background-color: #e3f2fd;
+  border-left: 4px solid #2196f3;
+  padding: 10px 15px;
+  margin-top: 15px;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.copy-key-btn {
+  background-color: transparent;
+  border: none;
+  color: #2196f3;
+  cursor: pointer;
+  padding: 5px;
+  margin-left: 5px;
+  border-radius: 4px;
+}
+
+.copy-key-btn:hover {
+  background-color: #e3f2fd;
+}
