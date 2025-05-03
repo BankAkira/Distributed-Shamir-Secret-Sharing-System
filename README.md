@@ -117,7 +117,7 @@ Before deploying to a production environment:
 
 ## Contract Structure
 
-- **pyShamir.sol**: Implementation of Shamir's Secret Sharing algorithm
+- **ShamirSecretSharing.sol**: Implementation of Shamir's Secret Sharing algorithm
 - **IShareContract.sol**: Interface for Share Contracts
 - **IShamirRegistry.sol**: Interface for the Registry
 - **ShareContract.sol**: Contract to store a single share with access control
